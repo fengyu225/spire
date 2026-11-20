@@ -372,6 +372,10 @@ func (s *Service) mintJWTSVID(ctx context.Context, protoID *types.SPIFFEID, audi
 		IncludeJTI: includeJTI,
 	})
 	if err != nil {
+		if status.Code(err) == codes.PermissionDenied {
+			// A credential composer refused to issue the SVID.
+			return nil, commonapi.MarkIssuanceDenied(commonapi.MakeErr(log, codes.PermissionDenied, "failed to sign JWT-SVID", err))
+		}
 		return nil, commonapi.MakeErr(log, codes.Internal, "failed to sign JWT-SVID", err)
 	}
 

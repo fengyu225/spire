@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -145,4 +146,15 @@ func TestMakeErr(t *testing.T) {
 			spiretest.AssertLogs(t, hook.AllEntries(), tt.expLog)
 		})
 	}
+}
+
+func TestIssuanceDenied(t *testing.T) {
+	err := api.MarkIssuanceDenied(status.Error(codes.PermissionDenied, "not authorized"))
+	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	require.True(t, api.IsIssuanceDenied(err))
+	require.True(t, api.IsIssuanceDenied(fmt.Errorf("failed to fetch JWT SVID: %w", err)))
+
+	require.False(t, api.IsIssuanceDenied(nil))
+	require.False(t, api.IsIssuanceDenied(errors.New("not authorized")))
+	require.False(t, api.IsIssuanceDenied(status.Error(codes.PermissionDenied, "agent is banned")))
 }

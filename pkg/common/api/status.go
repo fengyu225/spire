@@ -7,6 +7,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	"github.com/spiffe/spire/pkg/common/util"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -95,4 +96,38 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(string(s[0])) + s[1:]
+}
+
+const (
+	issuanceDeniedDomain = "spire.spiffe.io"
+	issuanceDeniedReason = "ISSUANCE_DENIED"
+)
+
+// MarkIssuanceDenied annotates a PermissionDenied error to indicate that the
+// server declined to issue the requested SVID (e.g. a credential composer
+// rejected it), as opposed to the caller failing authorization.
+func MarkIssuanceDenied(err error) error {
+	st, detailsErr := status.Convert(err).WithDetails(&errdetails.ErrorInfo{
+		Domain: issuanceDeniedDomain,
+		Reason: issuanceDeniedReason,
+	})
+	if detailsErr != nil {
+		return err
+	}
+	return st.Err()
+}
+
+// IsIssuanceDenied reports whether err is a PermissionDenied error annotated
+// by MarkIssuanceDenied.
+func IsIssuanceDenied(err error) bool {
+	st := status.Convert(err)
+	if st.Code() != codes.PermissionDenied {
+		return false
+	}
+	for _, detail := range st.Details() {
+		if info, ok := detail.(*errdetails.ErrorInfo); ok && info.Domain == issuanceDeniedDomain && info.Reason == issuanceDeniedReason {
+			return true
+		}
+	}
+	return false
 }

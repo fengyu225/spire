@@ -22,6 +22,7 @@ import (
 
 	svidv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/server/svid/v1"
 	"github.com/spiffe/spire-api-sdk/proto/spire/api/types"
+	commonapi "github.com/spiffe/spire/pkg/common/api"
 	"github.com/spiffe/spire/pkg/common/idutil"
 	"github.com/spiffe/spire/pkg/common/jwtsvid"
 	"github.com/spiffe/spire/pkg/common/telemetry"
@@ -1177,6 +1178,7 @@ func TestServiceNewJWTSVID(t *testing.T) {
 		entry           *types.Entry
 		disableJWTSVIDs bool
 		failMinting     bool
+		mintErr         error
 		failCallerID    bool
 		audience        []string
 		rateLimiterErr  error
@@ -1411,6 +1413,37 @@ func TestServiceNewJWTSVID(t *testing.T) {
 			},
 		},
 		{
+			name:     "credential composer denies",
+			code:     codes.PermissionDenied,
+			audience: []string{"AUDIENCE"},
+			entry:    entry,
+			err:      "failed to sign JWT-SVID: not authorized",
+			mintErr:  status.Error(codes.PermissionDenied, "not authorized"),
+			expectLogs: []spiretest.LogEntry{
+				{
+					Level:   logrus.ErrorLevel,
+					Message: "Failed to sign JWT-SVID",
+					Data: logrus.Fields{
+						logrus.ErrorKey:    "rpc error: code = PermissionDenied desc = not authorized",
+						telemetry.SPIFFEID: "spiffe://example.org/agent",
+					},
+				},
+				{
+					Level:   logrus.InfoLevel,
+					Message: "API accessed",
+					Data: logrus.Fields{
+						telemetry.Status:         "error",
+						telemetry.Type:           "audit",
+						telemetry.StatusCode:     "PermissionDenied",
+						telemetry.StatusMessage:  "failed to sign JWT-SVID: not authorized",
+						telemetry.Audience:       "AUDIENCE",
+						telemetry.RegistrationID: "agent-entry-id",
+						telemetry.SPIFFEID:       "spiffe://example.org/agent",
+					},
+				},
+			},
+		},
+		{
 			name:            "jwt is disabled",
 			disableJWTSVIDs: true,
 			code:            codes.Unimplemented,
@@ -1507,7 +1540,7 @@ func TestServiceNewJWTSVID(t *testing.T) {
 			if tt.failMinting {
 				test.ca.SetError(errors.New("oh no"))
 			} else {
-				test.ca.SetError(nil)
+				test.ca.SetError(tt.mintErr)
 			}
 
 			test.rateLimiter.count = 1
@@ -1523,6 +1556,7 @@ func TestServiceNewJWTSVID(t *testing.T) {
 			// Check for expected errors
 			if tt.err != "" {
 				spiretest.RequireGRPCStatusContains(t, err, tt.code, tt.err)
+				require.Equal(t, tt.mintErr != nil, commonapi.IsIssuanceDenied(err))
 				require.Nil(t, resp)
 
 				return
